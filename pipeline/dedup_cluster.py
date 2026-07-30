@@ -16,6 +16,7 @@ import argparse
 import gzip
 import json
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -153,7 +154,9 @@ def main():
     args = parser.parse_args()
 
     print("=== Stage A: MinHash near-duplicate removal ===")
+    t0 = time.perf_counter()
     run_minhash_dedup(args.clean_dir, args.minhash_dir, args.deduped_dir, args.log_dir, tasks=args.tasks)
+    minhash_elapsed = time.perf_counter() - t0
 
     clean_count = count_jsonl_docs(args.clean_dir)
     deduped_count = count_jsonl_docs(args.deduped_dir)
@@ -163,13 +166,17 @@ def main():
     print(f"Clean docs in:            {clean_count}")
     print(f"Deduped docs out:         {deduped_count}")
     print(f"Near-duplicates removed:  {removed} ({pct:.1f}%)")
+    print(f"Stage A wall time:        {minhash_elapsed:.3f}s")
 
     print("\n=== Stage B: TF-IDF + k-means topic clustering ===")
+    t0 = time.perf_counter()
     n_docs, k, cluster_sizes = run_topic_clustering(args.deduped_dir, args.clustered_dir, n_clusters=args.n_clusters)
+    cluster_elapsed = time.perf_counter() - t0
     print(f"Clustered {n_docs} docs into {k} topic clusters")
     for cid in sorted(cluster_sizes):
         print(f"  cluster {cid}: {cluster_sizes[cid]} docs")
     print(f"Output written to: {args.clustered_dir}")
+    print(f"Stage B wall time: {cluster_elapsed:.3f}s")
 
     write_stats(
         "dedup_cluster",
@@ -180,6 +187,8 @@ def main():
             "near_dups_removed_pct": round(pct, 2),
             "n_topic_clusters": k,
             "cluster_sizes": {str(cid): int(cluster_sizes[cid]) for cid in sorted(cluster_sizes)},
+            "minhash_elapsed_sec": round(minhash_elapsed, 3),
+            "clustering_elapsed_sec": round(cluster_elapsed, 3),
         },
     )
 

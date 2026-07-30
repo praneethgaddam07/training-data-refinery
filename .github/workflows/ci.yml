@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pipeline-and-dashboard-smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libmagic1
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-py312-${{ hashFiles('requirements-pipeline.txt') }}
+
+      # dashboard/app.py only needs pandas/plotly/streamlit on top of the pipeline deps --
+      # deliberately NOT installing the full requirements.txt (torch/dagster) here, to keep
+      # this fast and independent of anything beyond the pipeline + dashboard code paths.
+      - name: Install dependencies
+        run: pip install -r requirements-pipeline.txt pandas plotly streamlit
+
+      # No network access to Common Crawl: tests/fixtures/sample.warc.wet.gz is a small,
+      # synthetic, committed WET file (see tests/fixtures/generate_fixture.py) covering the
+      # cases that matter -- docs that should pass every filter, one that should get dropped
+      # by the language filter, a couple dropped by Gopher (too short), and one deliberate
+      # near-duplicate pair for MinHash dedup to catch.
+      - name: Run pipeline against the synthetic fixture
+        run: |
+          python pipeline/ingest_clean.py \
+            --raw-dir tests/fixtures --glob "sample.warc.wet.gz" \
+            --clean-dir data/interim/clean --dropped-dir data/interim/dropped \
+            --log-dir data/logs/ingest_clean
+          python pipeline/dedup_cluster.py \
+            --clean-dir data/interim/clean --minhash-dir data/interim/minhash \
+            --deduped-dir data/interim/deduped --clustered-dir data/interim/clustered \
+            --log-dir data/logs/dedup_cluster --tasks 1 --n-clusters 2
+          python pipeline/quality_scorer.py \
+            --clean-dir data/interim/clean \
+            --dropped-dirs data/interim/dropped/gopher data/interim/dropped/c4 \
+            --score-input-dir data/interim/clustered --scored-dir data/interim/scored
+          python pipeline/shard_writer.py \
+            --input-dir data/interim/scored --shards-dir data/shards \
+            --crawl-id CI-TEST --rows-per-shard 100
+
+      - name: Validate output Parquet schema
+        run: |
+          python -c "
+          import pyarrow.dataset as ds
+
+          expected_columns = [
+              'id', 'text', 'url', 'date', 'language',
+              'language_score', 'topic_cluster', 'quality_score', 'crawl',
+          ]
+          table = ds.dataset('data/shards', partitioning='hive').to_table()
+          assert table.schema.names == expected_columns, f'schema mismatch: {table.schema.names}'
+          assert table.num_rows > 0, 'shard_writer produced zero rows'
+          print(f'OK: {table.num_rows} rows, schema {table.schema.names}')
+          "
+
+      - name: Smoke-test the Streamlit dashboard starts headless
+        run: |
+          streamlit run dashboard/app.py --server.headless true --server.port 8501 &
+          SERVER_PID=$!
+          for i in $(seq 1 20); do
+            if curl -sf http://localhost:8501/_stcore/health > /dev/null 2>&1; then
+              echo "Streamlit is up after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -sf http://localhost:8501/_stcore/health || (echo "Streamlit failed to start" && exit 1)
+          kill "$SERVER_PID"

@@ -20,6 +20,7 @@ import argparse
 import gzip
 import json
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -113,15 +114,21 @@ def main():
     args = parser.parse_args()
 
     print("=== Training quality classifier (TF-IDF + logistic regression) ===")
+    t0 = time.perf_counter()
     vectorizer, clf, metrics = train_classifier(args.clean_dir, args.dropped_dirs)
+    train_elapsed = time.perf_counter() - t0
     print(f"Positive examples (passed filters): {metrics['n_positive']}")
     print(f"Negative examples (rejected by Gopher/C4): {metrics['n_negative']}")
     print(f"Train/test split: {metrics['n_train']}/{metrics['n_test']}")
     print(f"Held-out accuracy: {metrics['accuracy']:.4f}")
     print(f"Held-out ROC-AUC:  {metrics['roc_auc']:.4f}")
+    print(f"Train stage wall time: {train_elapsed:.3f}s")
 
     print("\n=== Scoring corpus ===")
+    t0 = time.perf_counter()
     n_docs, scores = score_corpus(vectorizer, clf, args.score_input_dir, args.scored_dir)
+    score_elapsed = time.perf_counter() - t0
+    print(f"Score stage wall time: {score_elapsed:.3f}s ({n_docs / score_elapsed:.1f} docs/sec)")
     dist = {
         "min": float(scores.min()),
         "p25": float(np.percentile(scores, 25)),
@@ -147,6 +154,9 @@ def main():
             "held_out_roc_auc": round(metrics["roc_auc"], 4),
             "n_scored": n_docs,
             "quality_score_distribution": dist,
+            "train_elapsed_sec": round(train_elapsed, 3),
+            "score_elapsed_sec": round(score_elapsed, 3),
+            "score_docs_per_sec": round(n_docs / score_elapsed, 1),
         },
     )
 

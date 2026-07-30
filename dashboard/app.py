@@ -9,6 +9,7 @@ Run with: streamlit run dashboard/app.py
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -21,9 +22,12 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from anomaly.batch_stats_detector import METRICS, compute_shard_stats, flag_anomalies
+from pipeline import storage
 
 STATS_DIR = REPO_ROOT / "data" / "stats"
-SHARDS_DIR = REPO_ROOT / "data" / "shards"
+# REFINERY_SHARDS_DIR lets the dashboard point at s3://bucket/prefix instead of local
+# disk (the AWS variant) -- unset, it defaults to the same local path as always.
+SHARDS_DIR = os.environ.get("REFINERY_SHARDS_DIR", str(REPO_ROOT / "data" / "shards"))
 RESULTS_PATH = REPO_ROOT / "data" / "ablation" / "results.json"
 
 # Validated categorical palette (dataviz skill, references/palette.md). The first
@@ -55,9 +59,9 @@ def load_stage_stats():
 
 @st.cache_data
 def load_shard_stats():
-    if not SHARDS_DIR.exists() or not any(SHARDS_DIR.rglob("*.parquet")):
+    if not storage.shards_exist(SHARDS_DIR):
         return []
-    return compute_shard_stats(str(SHARDS_DIR))
+    return compute_shard_stats(SHARDS_DIR)
 
 
 @st.cache_data
@@ -113,7 +117,7 @@ else:
 st.header("Shard stats")
 if shard_stats:
     shard_df = pd.DataFrame(shard_stats)
-    st.dataframe(shard_df, use_container_width=True, hide_index=True)
+    st.dataframe(shard_df, width="stretch", hide_index=True)
 
     fig = go.Figure()
     fig.add_trace(go.Bar(x=shard_df["shard"], y=shard_df["avg_quality_score"], marker_color=COLOR_RAW))
@@ -123,7 +127,7 @@ if shard_stats:
         showlegend=False,
         **TRANSPARENT_LAYOUT,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 else:
     st.info("No shards found -- run pipeline/shard_writer.py first.")
 
@@ -148,7 +152,7 @@ if len(shard_stats) >= 2:
         row = {"shard": s["shard"], "status": "ANOMALY" if r["flags"] else "OK"}
         row.update({f"{m}_z": round(r[m]["z"], 2) for m in METRICS})
         rows.append(row)
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
     bar_colors = [STATUS_CRITICAL if flagged[s["shard"]]["flags"] else STATUS_GOOD for s in shard_stats]
     fig = go.Figure()
@@ -156,7 +160,7 @@ if len(shard_stats) >= 2:
         go.Bar(x=[s["shard"] for s in shard_stats], y=[s["n_docs"] for s in shard_stats], marker_color=bar_colors)
     )
     fig.update_layout(title="Docs per shard (red = flagged anomalous)", yaxis_title="n_docs", showlegend=False, **TRANSPARENT_LAYOUT)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 else:
     st.info("Need at least 2 shards to compute z-scores.")
 
@@ -184,7 +188,7 @@ if ablation_results:
             legend_title_text="variant",
             **TRANSPARENT_LAYOUT,
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         st.caption(
             "Each variant's *own* held-out loss isn't comparable across variants -- raw/deduped's held-out "
             "text is full of repetitive boilerplate, which deflates loss artificially. The shared eval_loss "
@@ -213,7 +217,7 @@ if ablation_results:
                 )
             )
         fig2.update_layout(title="Training loss", xaxis_title="step", yaxis_title="train_loss", **TRANSPARENT_LAYOUT)
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
     with col2:
         fig3 = go.Figure()
         for name in VARIANT_ORDER:
@@ -231,7 +235,7 @@ if ablation_results:
                 )
             )
         fig3.update_layout(title="Own held-out val loss (confounded)", xaxis_title="step", yaxis_title="val_loss", **TRANSPARENT_LAYOUT)
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(fig3, width="stretch")
 
     table_rows = []
     for name in VARIANT_ORDER:
@@ -248,6 +252,6 @@ if ablation_results:
                 "shared_eval_loss": round(r["shared_eval_loss"], 4) if r.get("shared_eval_loss") is not None else None,
             }
         )
-    st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(table_rows), width="stretch", hide_index=True)
 else:
     st.info("No ablation results found -- run ablation/compare_mixes.py first.")

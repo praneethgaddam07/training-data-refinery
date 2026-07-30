@@ -10,13 +10,18 @@ rigorous outlier test. It will report that plainly if too few shards exist.
 """
 
 import argparse
+import sys
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 import numpy as np
 import pyarrow.compute as pc
-import pyarrow.dataset as ds
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+from pipeline import storage
+
 DEFAULT_SHARDS_DIR = REPO_ROOT / "data" / "shards"
 # NOTE: with population z-scores, |z| can never exceed sqrt(n-1) regardless of how
 # extreme a single shard is (e.g. n=4 -> max possible |z| = 1.73). The default here
@@ -28,8 +33,9 @@ METRICS = ["n_docs", "avg_text_len", "avg_quality_score", "avg_language_score", 
 
 
 def compute_shard_stats(shards_dir: str) -> list[dict]:
-    dataset = ds.dataset(shards_dir, partitioning="hive")
-    shards_root = Path(shards_dir)
+    dataset = storage.open_shards_dataset(shards_dir)
+    _, base_path = storage.resolve(shards_dir)
+    base_prefix = base_path.rstrip("/") + "/"
     stats = []
     for fragment in dataset.get_fragments():
         table = fragment.to_table()
@@ -39,7 +45,7 @@ def compute_shard_stats(shards_dir: str) -> list[dict]:
         lang_score = table["language_score"].to_numpy(zero_copy_only=False)
         topic = table["topic_cluster"].to_numpy(zero_copy_only=False)
 
-        shard_id = str(Path(fragment.path).relative_to(shards_root))
+        shard_id = fragment.path[len(base_prefix):] if fragment.path.startswith(base_prefix) else fragment.path
         stats.append(
             {
                 "shard": shard_id,

@@ -7,6 +7,37 @@ improves model quality via small-model ablations.
 Data source: Common Crawl **CC-MAIN-2026-17** (`https://data.commoncrawl.org`, public,
 no AWS account needed).
 
+## Architecture
+
+```mermaid
+flowchart LR
+    WET[("Common Crawl\nWET files")] --> INGEST["ingest_clean.py\nLanguage + Gopher + C4 filters"]
+
+    INGEST --> CLEAN[("clean/")]
+    INGEST --> DROPPED[("dropped/\ngopher, c4")]
+
+    CLEAN --> DEDUP["dedup_cluster.py\nMinHash dedup + TF-IDF/k-means"]
+    DEDUP --> DEDUPED[("deduped/")]
+    DEDUP --> CLUSTERED[("clustered/\n+topic_cluster")]
+
+    CLUSTERED --> QS["quality_scorer.py\nTF-IDF + logistic regression"]
+    DROPPED --> QS
+    QS --> SCORED[("scored/\n+quality_score")]
+
+    SCORED --> SW["shard_writer.py"]
+    SW --> SHARDS[("shards/\ncrawl=.../*.parquet")]
+
+    SHARDS --> ANOMALY["anomaly/\nbatch_stats_detector.py"]
+    SHARDS --> ABLATION["ablation/\ncompare_mixes.py (nanoGPT)"]
+    ANOMALY --> DASH["dashboard/app.py\n(Streamlit)"]
+    ABLATION --> DASH
+    SHARDS --> DASH
+```
+
+`orchestration/dagster_pipeline.py` wraps the four pipeline stages above as a Dagster asset
+graph; `k8s/` containerizes each stage as a Job runnable on a real cluster. Both are alternate
+*execution* paths over the same `pipeline/*.py` functions — the data flow above doesn't change.
+
 ## Status
 
 - [x] Phase 0 — setup
@@ -298,6 +329,34 @@ imports) — all three sections render with real data, dark-mode charts are read
 or server errors. Colors use the dataviz skill's validated categorical palette (blue/orange/aqua
 for raw/deduped/deduped_filtered — the three slots that pass CVD-safety checks together) and
 status red/green for anomaly flags.
+
+## Performance
+
+Real measured numbers from a single clean run of the full local pipeline against the 1 WET
+file used throughout this README (21,337 raw docs), on the machine this was developed on
+(Apple Silicon, MacBook, single-threaded per stage). No estimates -- every number below is
+`/usr/bin/time -p` wall time or in-process `time.perf_counter()` timing from the actual run,
+persisted alongside each stage's stats in `data/stats/*.json`.
+
+| Stage | Wall time | Throughput | Dominant cost |
+|---|---|---|---|
+| `ingest_clean.py` | 128.25s (2m 8s) | 166 docs/sec (21,337 raw) | Gopher filter: 51.1s of 126.1s internal (WarcReader 44.5s, Language ID 9.0s, C4 20.9s, writer 0.6s) |
+| `dedup_cluster.py` Stage A (MinHash) | 25.407s | 145 docs/sec (3,677 clean) | 4-stage MinHash pipeline (signature/buckets/cluster/filter) over 14 buckets |
+| `dedup_cluster.py` Stage B (TF-IDF/k-means) | 1.991s | 1,795 docs/sec (3,574 deduped) | scikit-learn TF-IDF vectorize + k-means(k=8) |
+| `quality_scorer.py` train | 1.811s | -- | TF-IDF + logistic regression on 6,936 labeled examples (5,548 train / 1,388 test) |
+| `quality_scorer.py` score | 1.361s | 2,626 docs/sec (3,574 scored) | TF-IDF transform + `predict_proba` |
+| `shard_writer.py` | 0.255s | 14,025 docs/sec (3,574 rows) | Parquet serialization, 4 shards |
+| **End-to-end (ingest -> shards)** | **159.08s (2m 39s)** | -- | -- |
+
+Shard storage: 4 Parquet files, snappy-compressed, averaging **2,072.9 KB (2.02 MB) per shard**
+at ~1,000 rows/shard (sizes: 2,357.1 / 2,388.6 / 2,320.7 / 1,225.3 KB -- last shard is the
+574-row remainder).
+
+The pipeline is heavily bottlenecked on `ingest_clean.py`'s Gopher quality filter (51s alone,
+40% of that stage's time) -- it re-tokenizes every document's full text for stopword/symbol/
+average-word-length checks. Everything downstream of the initial filter (dedup, clustering,
+scoring, shard writing) processes the much smaller surviving corpus (3,574-3,677 docs) in
+under 30 seconds combined.
 
 ## Repo layout
 

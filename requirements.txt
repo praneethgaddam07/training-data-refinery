@@ -28,3 +28,6 @@ plotly>=5.24.0
 # Utilities
 requests>=2.32.0
 pandas>=2.2.0
+
+# Testing
+pytest>=8.0.0
