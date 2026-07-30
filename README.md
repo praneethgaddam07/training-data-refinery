@@ -40,14 +40,14 @@ graph; `k8s/` containerizes each stage as a Job runnable on a real cluster. Both
 
 ## Status
 
-- [x] Phase 0 — setup
-- [x] Phase 1 — MVP pipeline (`ingest_clean.py`, `dedup_cluster.py`, `quality_scorer.py`,
+Phase 0 — setup
+Phase 1 — MVP pipeline (`ingest_clean.py`, `dedup_cluster.py`, `quality_scorer.py`,
       `shard_writer.py` all built and run end to end)
-- [x] Phase 2 — orchestration + K8s (Dagster asset graph + containerized K8s Jobs, both run
+Phase 2 — orchestration + K8s (Dagster asset graph + containerized K8s Jobs, both run
       end to end on a local OrbStack cluster)
-- [x] Phase 3 — anomaly detection + ablation (z-score shard detector; nanoGPT-style ablation
+Phase 3 — anomaly detection + ablation (z-score shard detector; nanoGPT-style ablation
       across raw/deduped/deduped+filtered, confirms cleaning helps on a fair benchmark)
-- [x] Phase 4 — dashboard (Streamlit: pipeline funnel, shard stats, anomaly flags, ablation
+Phase 4 — dashboard (Streamlit: pipeline funnel, shard stats, anomaly flags, ablation
       loss curves — reads real output only, verified rendering in-browser)
 
 ## Setup
