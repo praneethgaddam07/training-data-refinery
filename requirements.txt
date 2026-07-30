@@ -1,0 +1,30 @@
+# Core pipeline (WARC/WET reading, quality filters, MinHash dedup)
+datatrove[io,processing]==0.9.0
+spacy>=3.7.0  # word tokenizer used by Gopher/C4 quality filters (English)
+
+# NOTE: also requires the native libmagic library (not pip-installable on macOS):
+#   brew install libmagic
+
+# Parquet I/O (also pulled in by datatrove[io], pinned here for clarity)
+pyarrow>=17.0.0
+
+# Clustering / anomaly detection
+scikit-learn>=1.5.0
+scipy>=1.13.0
+
+# Orchestration
+dagster>=1.8.0
+dagster-webserver>=1.8.0
+
+# Ablation model (nanoGPT-based, MPS backend)
+torch>=2.4.0
+numpy>=2.0.0
+tiktoken>=0.7.0
+
+# Dashboard
+streamlit>=1.38.0
+plotly>=5.24.0
+
+# Utilities
+requests>=2.32.0
+pandas>=2.2.0

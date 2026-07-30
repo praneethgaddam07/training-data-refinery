@@ -1,0 +1,29 @@
+# Stage 4: write partitioned Parquet training shards (pipeline/shard_writer.py).
+# Depends on quality-job's /data/interim/scored.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: shard-job
+  namespace: training-data-refinery
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: shard-writer
+          image: training-data-refinery:latest
+          imagePullPolicy: Never
+          command: ["python", "pipeline/shard_writer.py"]
+          args:
+            - "--input-dir=/data/interim/scored"
+            - "--shards-dir=/data/shards"
+            - "--crawl-id=CC-MAIN-2026-17"
+            - "--rows-per-shard=1000"
+          volumeMounts:
+            - name: refinery-data
+              mountPath: /data
+      volumes:
+        - name: refinery-data
+          persistentVolumeClaim:
+            claimName: refinery-data

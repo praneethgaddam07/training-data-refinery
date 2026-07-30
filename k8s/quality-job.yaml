@@ -1,0 +1,31 @@
+# Stage 3: TF-IDF + logistic regression quality scoring (pipeline/quality_scorer.py).
+# Depends on dedup-job's /data/interim/clustered and ingest-job's /data/interim/dropped.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: quality-job
+  namespace: training-data-refinery
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: quality-scorer
+          image: training-data-refinery:latest
+          imagePullPolicy: Never
+          command: ["python", "pipeline/quality_scorer.py"]
+          args:
+            - "--clean-dir=/data/interim/clean"
+            - "--dropped-dirs"
+            - "/data/interim/dropped/gopher"
+            - "/data/interim/dropped/c4"
+            - "--score-input-dir=/data/interim/clustered"
+            - "--scored-dir=/data/interim/scored"
+          volumeMounts:
+            - name: refinery-data
+              mountPath: /data
+      volumes:
+        - name: refinery-data
+          persistentVolumeClaim:
+            claimName: refinery-data

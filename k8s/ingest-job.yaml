@@ -1,0 +1,34 @@
+# Stage 1: download a WET file from Common Crawl in-cluster (no host mount needed,
+# same as a real remote cluster would have to do) and run pipeline/ingest_clean.py.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ingest-job
+  namespace: training-data-refinery
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: ingest-clean
+          image: training-data-refinery:latest
+          imagePullPolicy: Never
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              mkdir -p /data/raw
+              curl -sf -o /data/raw/CC-MAIN-20260410081153-20260410111153-00000.warc.wet.gz \
+                "https://data.commoncrawl.org/crawl-data/CC-MAIN-2026-17/segments/1775805908305.14/wet/CC-MAIN-20260410081153-20260410111153-00000.warc.wet.gz"
+              python pipeline/ingest_clean.py \
+                --raw-dir /data/raw \
+                --clean-dir /data/interim/clean \
+                --dropped-dir /data/interim/dropped
+          volumeMounts:
+            - name: refinery-data
+              mountPath: /data
+      volumes:
+        - name: refinery-data
+          persistentVolumeClaim:
+            claimName: refinery-data

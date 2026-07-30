@@ -1,0 +1,8 @@
+# Runtime deps for the pipeline/ stage scripts only (used to build the container
+# image for k8s Jobs). Excludes dagster/torch/streamlit/plotly, which are only
+# needed for local orchestration, ablation, and the dashboard.
+datatrove[io,processing]==0.9.0
+spacy>=3.7.0
+pyarrow>=17.0.0
+scikit-learn>=1.5.0
+scipy>=1.13.0

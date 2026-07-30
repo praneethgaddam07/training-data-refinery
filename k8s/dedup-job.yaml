@@ -1,0 +1,31 @@
+# Stage 2: MinHash near-dup removal + TF-IDF/k-means topic clustering (pipeline/dedup_cluster.py).
+# Depends on ingest-job having populated /data/interim/clean on the shared PVC.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dedup-job
+  namespace: training-data-refinery
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: dedup-cluster
+          image: training-data-refinery:latest
+          imagePullPolicy: Never
+          command: ["python", "pipeline/dedup_cluster.py"]
+          args:
+            - "--clean-dir=/data/interim/clean"
+            - "--minhash-dir=/data/interim/minhash"
+            - "--deduped-dir=/data/interim/deduped"
+            - "--clustered-dir=/data/interim/clustered"
+            - "--tasks=1"
+            - "--n-clusters=8"
+          volumeMounts:
+            - name: refinery-data
+              mountPath: /data
+      volumes:
+        - name: refinery-data
+          persistentVolumeClaim:
+            claimName: refinery-data
